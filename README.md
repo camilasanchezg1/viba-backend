@@ -353,7 +353,275 @@ Verifica en GitHub que todos los archivos estén presentes. Confirma que el `.en
 
 ---
 
-## Parte 3 — Desplegar en Railway
+# ▲ Cómo desplegar ViBa en Vercel
+
+Tutorial paso a paso para subir el backend de ViBa a producción usando Vercel (gratis).
+
+---
+
+## Requisitos previos
+
+- [ ] Cuenta en [Vercel](https://vercel.com) (puedes registrarte con GitHub)
+- [ ] Cuenta en [GitHub](https://github.com)
+- [ ] [Git](https://git-scm.com/downloads) instalado en tu máquina
+- [ ] [Vercel CLI](https://vercel.com/docs/cli) instalado (opcional, para deploy desde terminal)
+- [ ] El proyecto ViBa con los 4 archivos actualizados para Vercel
+- [ ] Una base de datos MongoDB (ver sección MongoDB Atlas más abajo)
+
+---
+
+## ¿Por qué Vercel necesita ajustes en el código?
+
+Vercel es **serverless**: no mantiene tu servidor corriendo entre requests. Cada request puede ejecutarse en una instancia nueva, por eso:
+
+- `server.js` exporta el `app` en vez de solo llamar `listen()` — Vercel lo convierte en una función serverless
+- `database.js` cachea la conexión a MongoDB para no reconectar en cada request
+- `vercel.json` le dice a Vercel que enrute todo a tu `server.js`
+
+---
+
+## Parte 1 — Preparar MongoDB Atlas
+
+Vercel no incluye base de datos, necesitas MongoDB Atlas (tiene tier gratuito).
+
+### Paso 1 — Crear cuenta y cluster
+
+1. Ve a [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas)
+2. Clic en **Try Free** y crea tu cuenta
+3. Selecciona el plan **M0 Free**
+4. Elige proveedor y región cercana (AWS / São Paulo para Colombia)
+5. Nombre del cluster: `viba-cluster` → clic en **Create**
+
+### Paso 2 — Crear usuario de base de datos
+
+1. Menú lateral → **Database Access** → **Add New Database User**
+2. Autenticación: **Password**
+3. Username: `viba-user`
+4. Clic en **Autogenerate Secure Password** → **copia la contraseña**
+5. Privilegios: **Read and write to any database**
+6. Clic en **Add User**
+
+### Paso 3 — Permitir acceso desde cualquier IP
+
+Vercel usa IPs dinámicas, debes abrir el acceso:
+
+1. Menú lateral → **Network Access** → **Add IP Address**
+2. Clic en **Allow Access from Anywhere** (agrega `0.0.0.0/0`)
+3. Clic en **Confirm**
+
+### Paso 4 — Obtener la connection string
+
+1. Menú lateral → **Database** → **Connect** en tu cluster
+2. Selecciona **Drivers** → Driver: **Node.js**
+3. Copia la connection string y arma la URL final así:
+
+```
+mongodb+srv://viba-user:TuPassword@viba-cluster.xxxxx.mongodb.net/viba?retryWrites=true&w=majority
+```
+
+> Reemplaza `TuPassword` con la contraseña del Paso 2 y asegúrate de que `/viba` esté antes del `?`.
+> Guarda esta URL, la usarás como `MONGO_URL` en Vercel.
+
+---
+
+## Parte 2 — Subir el proyecto a GitHub
+
+### Paso 1 — Asegúrate de tener los 4 archivos actualizados
+
+Antes de hacer commit confirma que en tu proyecto estén:
+
+- `vercel.json` → archivo nuevo en la raíz
+- `server.js` → exporta `module.exports = app`
+- `src/config/database.js` → cachea la conexión con `isConnected`
+- `package.json` → tiene el script `"build": "echo 'No build step required'"`
+
+### Paso 2 — Inicializar el repositorio
+
+```bash
+git init
+git add .
+git commit -m "feat: ViBa initial commit"
+```
+
+### Paso 3 — Crear repositorio en GitHub
+
+1. Ve a [github.com](https://github.com) → botón **+** → **New repository**
+2. Nombre: `viba-backend`
+3. Visibilidad: **Private**
+4. **No** marques ninguna casilla de inicialización
+5. Clic en **Create repository**
+
+### Paso 4 — Subir el código
+
+```bash
+git remote add origin https://github.com/tu-usuario/viba-backend.git
+git branch -M main
+git push -u origin main
+```
+
+Verifica en GitHub que el `.env` **no aparezca** en los archivos.
+
+---
+
+## Parte 3 — Desplegar en Vercel
+
+### Opción A — Desde la web (recomendada)
+
+**Paso 1 — Crear proyecto**
+
+1. Ve a [vercel.com](https://vercel.com) e inicia sesión
+2. Clic en **Add New** → **Project**
+3. Clic en **Import Git Repository**
+4. Si es la primera vez, autoriza a Vercel acceso a GitHub
+5. Busca y selecciona `viba-backend`
+6. Clic en **Import**
+
+**Paso 2 — Configurar el proyecto**
+
+En la pantalla de configuración:
+
+- **Framework Preset**: selecciona **Other** (no es Next.js ni nada de eso)
+- **Root Directory**: déjalo en `.` (raíz del proyecto)
+- **Build Command**: déjalo vacío o escribe `npm run build`
+- **Output Directory**: déjalo vacío
+- **Install Command**: `npm install`
+
+**Paso 3 — Agregar variables de entorno**
+
+Antes de hacer el primer deploy, expande la sección **Environment Variables** y agrega:
+
+| Name | Value |
+|---|---|
+| `MONGO_URL` | La connection string de Atlas del Paso 4 de la Parte 1 |
+| `JWT_SECRET` | Una cadena aleatoria larga (mínimo 32 caracteres) |
+| `JWT_EXPIRES_IN` | `7d` |
+| `NODE_ENV` | `production` |
+
+> **Tip** para generar un JWT_SECRET seguro, corre esto en tu terminal:
+> ```bash
+> node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+> ```
+
+**Paso 4 — Desplegar**
+
+Clic en **Deploy**. Vercel mostrará los logs en tiempo real. El deploy exitoso tarda entre 30 segundos y 2 minutos.
+
+---
+
+### Opción B — Desde la terminal con Vercel CLI
+
+```bash
+# Instalar Vercel CLI globalmente
+npm install -g vercel
+
+# Dentro de la carpeta del proyecto
+vercel
+
+# Seguir las instrucciones:
+# - Set up and deploy? → Y
+# - Which scope? → tu cuenta
+# - Link to existing project? → N
+# - Project name → viba-backend
+# - Directory → ./
+# - Override settings? → N
+```
+
+Para agregar las variables de entorno desde la terminal:
+
+```bash
+vercel env add MONGO_URL
+vercel env add JWT_SECRET
+vercel env add JWT_EXPIRES_IN
+vercel env add NODE_ENV
+```
+
+Cada comando te pedirá el valor y en qué entornos aplicarlo (selecciona **Production**, **Preview** y **Development**).
+
+Para el deploy final a producción:
+
+```bash
+vercel --prod
+```
+
+---
+
+## Parte 4 — Verificar el deploy
+
+### Obtener la URL
+
+Al terminar el deploy, Vercel te muestra la URL. También la encuentras en el dashboard en la sección **Domains**, se ve así:
+
+```
+https://viba-backend.vercel.app
+```
+
+### Probar que funciona
+
+Abre la URL en el navegador, debes ver:
+
+```json
+{
+  "message": "🎮 ViBa API is running",
+  "version": "1.0.0",
+  "docs": "/api/docs"
+}
+```
+
+### Probar la documentación Swagger
+
+```
+https://viba-backend.vercel.app/api/docs
+```
+
+Para los endpoints protegidos:
+
+1. Haz `POST /api/auth/register` o `POST /api/auth/login`
+2. Copia el `token` de la respuesta
+3. Clic en el botón **Authorize** (candado en Swagger UI)
+4. Escribe `Bearer <token>` → clic en **Authorize**
+
+---
+
+## Parte 5 — Deploys automáticos (CI/CD)
+
+Vercel detecta cada `push` a `main` y despliega automáticamente:
+
+```bash
+# Haces cambios...
+git add .
+git commit -m "fix: corrección en inventario"
+git push origin main
+# Vercel despliega automáticamente ✅
+```
+
+Los `push` a otras ramas crean **Preview Deployments** con URLs temporales, útil para probar antes de llevar a producción.
+
+---
+
+## Solución de problemas comunes
+
+**Error 404 en todos los endpoints**
+Verifica que `vercel.json` esté en la raíz del proyecto y que el campo `"dest"` apunte a `"server.js"`.
+
+**Error "Cannot find module"**
+Asegúrate de que todos los paquetes estén en `dependencies` (no en `devDependencies`) del `package.json`.
+
+**Timeout en requests (Error 504)**
+Vercel tiene un límite de 10 segundos para el plan gratuito. Si MongoDB tarda en conectar, verifica que la IP `0.0.0.0/0` esté en la lista blanca de Atlas.
+
+**Error de conexión a MongoDB**
+- Revisa que `MONGO_URL` esté bien escrita en las variables de Vercel (sin `<password>` sin reemplazar)
+- Confirma que el nombre de la BD (`/viba`) esté en la URL antes del `?`
+- Verifica en Atlas que la IP `0.0.0.0/0` esté activa en Network Access
+
+**Las variables de entorno no funcionan**
+Después de agregar o cambiar variables en Vercel hay que hacer un **redeploy manual**. Ve al dashboard → **Deployments** → clic en los tres puntos del último deploy → **Redeploy**.
+
+**El JWT_SECRET cambia entre deploys**
+Si defines el `JWT_SECRET` en las variables de entorno de Vercel y no lo cambias, persiste entre deploys. El problema ocurre si lo dejas vacío — Vercel usaría `undefined` y los tokens fallarían.
+
+
+## Parte 4 — Desplegar en Railway
 
 ### Paso 1 — Crear proyecto en Railway
 
